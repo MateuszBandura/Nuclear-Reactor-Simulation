@@ -1,5 +1,6 @@
 import plotly.graph_objects as go
 import numpy as np
+import dash_bootstrap_components as dbc
 from dash import Dash, html, dcc, callback, Output, Input, State
 from scipy.integrate import solve_ivp
 
@@ -60,8 +61,9 @@ DELTA_T_OPTIONS = {
     '20°C': 20.0
 }
 
+# Calculate original initial conditions based on parameters
 def get_original_initial_conditions(reactor_type, K_p, T_in, delta_T):
-    """Calculate original initial conditions based on parameters"""
+    
     params = REACTOR_TYPES[reactor_type]
     Lambda = params['Lambda']
     beta_i = params['beta_i']
@@ -74,11 +76,10 @@ def get_original_initial_conditions(reactor_type, K_p, T_in, delta_T):
     
     return np.concatenate(([n0], C0, [T0])), T_ref
 
+# ODE system for reactor dynamics
+# y = [n, C1, C2, C3, C4, C5, C6, T]
 def reactor_ode(t, y, rho_ext_func, params):
-    """
-    ODE system for reactor dynamics
-    y = [n, C1, C2, C3, C4, C5, C6, T]
-    """
+    
     n = y[0]
     C = y[1:7]
     T = y[7]
@@ -119,14 +120,19 @@ def reactor_ode(t, y, rho_ext_func, params):
     
     return np.concatenate(([dn], dC, [dT]))
 
-app = Dash(__name__)
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# Or choose other themes like: DARKLY, FLATLY, COSMO, CERULEAN, etc.
 
 app.layout = html.Div([
-    html.H1('Symulacja Reaktora Jądrowego', style={'textAlign': 'center'}),
+    html.H1('Symulacja Reaktora Jądrowego', style={
+        'textAlign': 'center',
+        'marginBottom': '30px',
+        'color': '#2c3e50'
+    }),
     
     # Store component to hold current state and last simulation
     dcc.Store(id='current-state', data={
-        'y0': None,  # Will be initialized on first run
+        'y0': None,
         'rho_current': 0.0,
         'is_original': True,
         'simulation_count': 0,
@@ -141,114 +147,164 @@ app.layout = html.Div([
         }
     }),
     
-    # Parameter selection panel
+    # Top section: Dropdowns (left) and Slider (right)
     html.Div([
-        html.H3('Parametry Reaktora', style={'textAlign': 'center', 'marginBottom': '20px'}),
+        # Left: Parameter dropdowns (2 per row)
+        html.Div([
+            html.H3('Parametry Reaktora', style={'marginBottom': '20px', 'color': '#34495e'}),
+            
+            # Row 1
+            html.Div([
+                html.Div([
+                    html.Label('Typ reaktora:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='reactor-type', options=[{'label': k, 'value': k} for k in REACTOR_TYPES.keys()],
+                                value='PWR (A)', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block', 'marginRight': '4%'}),
+                
+                html.Div([
+                    html.Label('Moc nominalna:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='power', options=[{'label': k, 'value': k} for k in POWER_OPTIONS.keys()],
+                                value='3 GW', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block'}),
+            ], style={'marginBottom': '15px'}),
+            
+            # Row 2
+            html.Div([
+                html.Div([
+                    html.Label('Stała czasowa:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='tau-th', options=[{'label': k, 'value': k} for k in TAU_TH_OPTIONS.keys()],
+                                value='200 s', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block', 'marginRight': '4%'}),
+                
+                html.Div([
+                    html.Label('Współczynnik temp.:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='alpha-t', options=[{'label': k, 'value': k} for k in ALPHA_T_OPTIONS.keys()],
+                                value='-5×10⁻⁵ K⁻¹', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block'}),
+            ], style={'marginBottom': '15px'}),
+            
+            # Row 3
+            html.Div([
+                html.Div([
+                    html.Label('Temperatura wlotu:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='t-in', options=[{'label': k, 'value': k} for k in T_IN_OPTIONS.keys()],
+                                value='290°C', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block', 'marginRight': '4%'}),
+                
+                html.Div([
+                    html.Label('Przyrost temperatury:', style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
+                    dcc.Dropdown(id='delta-t', options=[{'label': k, 'value': k} for k in DELTA_T_OPTIONS.keys()],
+                                value='10°C', clearable=False)
+                ], style={'width': '48%', 'display': 'inline-block'}),
+            ], style={'marginBottom': '0'}),
+            
+        ], style={
+            'width': '49%',
+            'display': 'inline-block',
+            'verticalAlign': 'top',
+            'padding': '20px',
+            'backgroundColor': '#ecf0f1',
+            'borderRadius': '10px',
+            'boxSizing': 'border-box'
+        }),
         
+        # Right: Reactivity slider (flexbox for centering)
+        html.Div([
+            html.H3('Reaktywność', style={'marginBottom': '20px', 'color': '#34495e'}),
+            
+            html.Div([
+                html.Label('Reaktywność zewnętrzna (Δk/k):', style={'fontWeight': 'bold', 'marginBottom': '15px', 'display': 'block'}),
+                dcc.Slider(
+                    id='slider-val',
+                    min=-0.005,
+                    max=0.005,
+                    step=0.0001,
+                    value=0.001,
+                    #marks={i/1000: f'{i} pcm' for i in range(-5, 6)},
+                    marks=None,
+                    tooltip={"placement": "bottom", "always_visible": True}
+                ),
+            ]),
+            
+        ], style={
+            'width': '49%',
+            'display': 'inline-block',
+            'verticalAlign': 'top',
+            'padding': '20px',
+            'backgroundColor': '#ecf0f1',
+            'borderRadius': '10px',
+            'marginLeft': '1%',
+            'boxSizing': 'border-box',
+        }),
+    ], style={'marginBottom': '20px', 'display': 'flex', 'justify-content': 'space-between'}),
+    
+    # Current initial values display
+    html.Div([
+        html.H3('Warunki Początkowe Następnej Symulacji', style={'marginBottom': '15px', 'color': '#34495e'}),
         html.Div([
             html.Div([
-                html.Label('Typ reaktora:', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='reactor-type',
-                    options=[{'label': k, 'value': k} for k in REACTOR_TYPES.keys()],
-                    value='PWR (A)',
-                    clearable=False,
-                    style={'width': '200px'}
-                )
+                html.Label('Gęstość neutronów (n):', style={'fontWeight': 'bold', 'marginRight': '10px'}),
+                dcc.Input(id='display-n', type='text', disabled=True, value='1.0000',
+                         style={'width': '120px', 'textAlign': 'center'})
             ], style={'display': 'inline-block', 'margin': '10px'}),
             
             html.Div([
-                html.Label('Moc nominalna (Kₚ):', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='power',
-                    options=[{'label': k, 'value': k} for k in POWER_OPTIONS.keys()],
-                    value='3 GW',
-                    clearable=False,
-                    style={'width': '150px'}
-                )
+                html.Label('Temperatura (T) [°C]:', style={'fontWeight': 'bold', 'marginRight': '10px'}),
+                dcc.Input(id='display-T', type='text', disabled=True, value='300.00',
+                         style={'width': '120px', 'textAlign': 'center'})
             ], style={'display': 'inline-block', 'margin': '10px'}),
             
             html.Div([
-                html.Label('Stała czasowa (τₜₕ):', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='tau-th',
-                    options=[{'label': k, 'value': k} for k in TAU_TH_OPTIONS.keys()],
-                    value='200 s',
-                    clearable=False,
-                    style={'width': '150px'}
-                )
+                html.Label('Reaktywność (ρ):', style={'fontWeight': 'bold', 'marginRight': '10px'}),
+                dcc.Input(id='display-rho', type='text', disabled=True, value='0.0000',
+                         style={'width': '120px', 'textAlign': 'center'})
             ], style={'display': 'inline-block', 'margin': '10px'}),
-        ], style={'textAlign': 'center'}),
+        ], style={'textAlign': 'center', 'marginBottom': '15px'}),
         
+        # Buttons side by side
         html.Div([
-            html.Div([
-                html.Label('Współczynnik temp. (αₜ):', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='alpha-t',
-                    options=[{'label': k, 'value': k} for k in ALPHA_T_OPTIONS.keys()],
-                    value='-5×10⁻⁵ K⁻¹',
-                    clearable=False,
-                    style={'width': '180px'}
-                )
-            ], style={'display': 'inline-block', 'margin': '10px'}),
-            
-            html.Div([
-                html.Label('Temperatura wlotu (Tᵢₙ):', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='t-in',
-                    options=[{'label': k, 'value': k} for k in T_IN_OPTIONS.keys()],
-                    value='290°C',
-                    clearable=False,
-                    style={'width': '150px'}
-                )
-            ], style={'display': 'inline-block', 'margin': '10px'}),
-            
-            html.Div([
-                html.Label('Przyrost temperatury (ΔT):', style={'fontWeight': 'bold'}),
-                dcc.Dropdown(
-                    id='delta-t',
-                    options=[{'label': k, 'value': k} for k in DELTA_T_OPTIONS.keys()],
-                    value='10°C',
-                    clearable=False,
-                    style={'width': '150px'}
-                )
-            ], style={'display': 'inline-block', 'margin': '10px'}),
+            html.Button('Uruchom Symulację', id='submit-val', n_clicks=0,
+                       style={'margin': '10px', 'padding': '10px 25px', 'fontSize': '15px',
+                              'backgroundColor': '#27ae60', 'color': 'white', 'border': 'none',
+                              'borderRadius': '6px', 'cursor': 'pointer', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'}),
+            html.Button('Reset', id='reset-val', n_clicks=0,
+                       style={'margin': '10px', 'padding': '10px 25px', 'fontSize': '15px',
+                              'backgroundColor': '#e74c3c', 'color': 'white', 'border': 'none',
+                              'borderRadius': '6px', 'cursor': 'pointer', 'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'})
         ], style={'textAlign': 'center'}),
         
-    ], style={'backgroundColor': '#f0f0f0', 'padding': '20px', 'marginBottom': '20px', 'borderRadius': '10px'}),
+    ], style={
+        'backgroundColor': '#ecf0f1',
+        'padding': '20px',
+        'marginBottom': '20px',
+        'borderRadius': '10px'
+    }),
     
-    html.Div([
-        html.Label('Reaktywność zewnętrzna (Δk/k):'),
-        dcc.Slider(
-            id='slider-val',
-            min=-0.005,
-            max=0.005,
-            step=0.0001,
-            value=0.001,
-            marks={i/1000: f'{i} pcm' for i in range(-5, 6)},
-            tooltip={"placement": "bottom", "always_visible": True}
-        ),
-    ], style={'padding': '20px'}),
-    
-    html.Div([
-        html.Button('Uruchom Symulację', id='submit-val', n_clicks=0, 
-                    style={'margin': '10px', 'padding': '10px 20px', 'fontSize': '16px',
-                           'backgroundColor': '#4CAF50', 'color': 'white', 'border': 'none',
-                           'borderRadius': '4px', 'cursor': 'pointer'}),
-        html.Button('Reset do Wartości Początkowych', id='reset-val', n_clicks=0,
-                    style={'margin': '10px', 'padding': '10px 20px', 'fontSize': '16px',
-                           'backgroundColor': '#f44336', 'color': 'white', 'border': 'none',
-                           'borderRadius': '4px', 'cursor': 'pointer'}),
-    ], style={'textAlign': 'center'}),
-    
-    html.Div(id='status-div', style={'textAlign': 'center', 'color': 'blue', 'padding': '10px'}),
-    html.Div(id='state-info', style={'textAlign': 'center', 'color': 'green', 'padding': '5px', 
-                                      'fontSize': '14px'}),
-    
+    # Graphs
     dcc.Graph(id="power-graph"),
     dcc.Graph(id="temperature-graph"),
     dcc.Graph(id="precursors-graph")
-])
+], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px'})
+
+# Update display fields when state changes (parameter change or reset)
+@callback(
+    [Output('display-n', 'value', allow_duplicate=True),
+     Output('display-T', 'value', allow_duplicate=True),
+     Output('display-rho', 'value', allow_duplicate=True)],
+    Input('current-state', 'data'),
+    prevent_initial_call=True
+)
+def update_display_fields(state_data):
+
+    if state_data['y0'] is None:
+        return "1.0000", "300.00", "0.0000"
+    
+    y0 = np.array(state_data['y0'])
+    n = y0[0]
+    T = y0[7]
+    rho = state_data.get('rho_current', 0.0)
+    
+    return f"{n:.4f}", f"{T:.2f}", f"{rho:.4f}"
 
 @callback(
     Output('current-state', 'data'),
@@ -261,8 +317,9 @@ app.layout = html.Div([
     State('current-state', 'data'),
     prevent_initial_call=True
 )
+
+# Automatically reset state when any parameter changes
 def reset_on_parameter_change(reactor_type, power, tau_th, alpha_t, t_in, delta_t, state_data):
-    """Automatically reset state when any parameter changes"""
     
     # Get current parameters from state
     stored_params = state_data.get('parameters', {})
@@ -307,8 +364,10 @@ def reset_on_parameter_change(reactor_type, power, tau_th, alpha_t, t_in, delta_
      State('current-state', 'data')],
     prevent_initial_call=True
 )
+
+# Reset to original initial conditions and clear last simulation
 def reset_state(n_clicks, reactor_type, power, t_in, delta_t, state_data):
-    """Reset to original initial conditions and clear last simulation"""
+    
     K_p = POWER_OPTIONS[power]
     T_in = T_IN_OPTIONS[t_in]
     delta_T = DELTA_T_OPTIONS[delta_t]
@@ -328,8 +387,9 @@ def reset_state(n_clicks, reactor_type, power, t_in, delta_t, state_data):
     [Output('power-graph', 'figure'),
      Output('temperature-graph', 'figure'),
      Output('precursors-graph', 'figure'),
-     Output('status-div', 'children'),
-     Output('state-info', 'children'),
+     Output('display-n', 'value'),
+     Output('display-T', 'value'),
+     Output('display-rho', 'value'),
      Output('current-state', 'data', allow_duplicate=True)],
     Input('submit-val', 'n_clicks'),
     [State('slider-val', 'value'),
@@ -342,8 +402,10 @@ def reset_state(n_clicks, reactor_type, power, t_in, delta_t, state_data):
      State('delta-t', 'value')],
     prevent_initial_call=True
 )
+
+#Update all three graphs and save final state
 def update_graphs(n_clicks, rho_value, state_data, reactor_type, power, tau_th, alpha_t, t_in, delta_t):
-    """Update all three graphs and save final state"""
+    
     
     # Get parameter values from dropdowns
     reactor_params = REACTOR_TYPES[reactor_type]
@@ -415,8 +477,7 @@ def update_graphs(n_clicks, rho_value, state_data, reactor_type, power, tau_th, 
         error_msg = f"Błąd symulacji: {str(e)}"
         empty_fig = go.Figure()
         empty_fig.update_layout(title=error_msg)
-        state_info = "Symulacja nie powiodła się - spróbuj innych parametrów"
-        return empty_fig, empty_fig, empty_fig, error_msg, state_info, state_data
+        return empty_fig, empty_fig, empty_fig, "ERROR", "ERROR", "ERROR", state_data
     
     t = sol.t
     n = sol.y[0]
@@ -532,17 +593,11 @@ def update_graphs(n_clicks, rho_value, state_data, reactor_type, power, tau_th, 
     T_initial = T[0]
     T_final = T[-1]
     n_final = n[-1]
-    percent_change = ((P_final / P_initial) - 1) * 100 if P_initial > 0 else 0
-    rho_change = rho_value - rho_previous
     
-    status = (f"✓ Symulacja {sim_count+1} zakończona | "
-              f"ρ_poprzednia = {rho_previous:.4f} → ρ_nowa = {rho_value:.4f} "
-              f"(Δρ = {rho_change:+.4f} = {rho_change*1e5:+.1f} pcm) | "
-              f"ΔP = {percent_change:+.2f}% | T_final = {T_final:.2f}°C")
-    
-    # State info
-    state_info = (f"Warunki końcowe tej symulacji → Warunki początkowe następnej: "
-                  f"n = {n_final:.4f}, T = {T_final:.2f}°C, ρ = {rho_value:.4f}")
+    # Format display values
+    display_n_val = f"{n_final:.4f}"
+    display_T_val = f"{T_final:.2f}"
+    display_rho_val = f"{rho_value:.4f}"
     
     # Save current simulation data for next run (to show as "previous")
     current_sim_data = {
@@ -568,7 +623,7 @@ def update_graphs(n_clicks, rho_value, state_data, reactor_type, power, tau_th, 
         }
     }
     
-    return fig_power, fig_temp, fig_precursors, status, state_info, new_state
+    return fig_power, fig_temp, fig_precursors, display_n_val, display_T_val, display_rho_val, new_state
 
 if __name__ == '__main__':
     app.run(debug=True)
